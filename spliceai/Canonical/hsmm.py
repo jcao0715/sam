@@ -71,8 +71,8 @@ for datapoint in data:
 
 # yp_acc can be treated as col in q matrix
     
-yp_acc = acceptor(torch.tensor(x[None]).float().cuda()).log_softmax(-1)[0,clip:-clip,1].detach().cpu()
-yp_don = donor(torch.tensor(x[None]).float().cuda()).log_softmax(-1)[0,clip:-clip,2].detach().cpu()
+yp_acc = acceptor(torch.tensor(x[None]).float().cuda()).softmax(-1)[0,clip:-clip,1].detach().cpu()
+yp_don = donor(torch.tensor(x[None]).float().cuda()).softmax(-1)[0,clip:-clip,2].detach().cpu()
 yp_null = 1 - yp_acc - yp_don
 
 q3 = torch.stack([yp_null, yp_acc, yp_don], dim=0)
@@ -80,11 +80,27 @@ q = torch.zeros(9, q3.shape[1])
 q[1:6] = q3[0, :]
 q[6] = q3[1, :]
 q[7] = q3[2, :]
+q = q[:, :1000]
 start = torch.zeros(9, 1)
 start[0] = 1.0
 end = torch.zeros(9, 1)
 end[-1] = 1.0
 q = torch.cat((start, q, end), dim=1)
+q /= q.sum(dim=0)
+print(q)
+# plot
+time_steps = range(len(q[0]))
+plt.figure()
+for state in states:
+    probs = [q[state][i].detach().numpy() for i in range(len(q[1]))]
+    plt.plot(time_steps, probs, label=f"State {state}")
+
+plt.xlabel('Time Step')
+plt.ylabel('Probability of Observation')
+plt.title('q Matrix')
+plt.legend()
+plt.grid(True)
+plt.show()
 
 def matrix_mult_factor(log_alpha_row, Transition):
     """
@@ -182,8 +198,18 @@ def forward(states, Transition, q, Duration):
     log_alpha_list = torch.exp(torch.stack(log_alpha_list))
     return log_alpha_list
 
-# fwd = forward(states, Transition, q, Duration).detach().numpy()
+fwd = forward(states, Transition, q, Duration).detach().numpy()
+print(fwd)
 
+for state in states:
+    probs = [fwd[t][state] for t in range(len(q[0]))]
+    plt.plot(time_steps, probs, label =f"State {state}")
+
+plt.xlabel('Time step')
+plt.ylabel('Probability of state')
+plt.title('Forward algorithm')
+plt.legend()
+plt.show()
 
 def backward(states, Transition, q, Duration):
     T = len(q[0])
@@ -232,7 +258,18 @@ def backward(states, Transition, q, Duration):
     log_beta = torch.exp(log_beta)
     return log_beta
 
-# bwd = backward(states, Transition, q, Duration).detach().numpy()
+bwd = backward(states, Transition, q, Duration).detach().numpy()
+print(bwd)
+
+for state in states:
+    probs = [bwd[t][state] for t in range(len(q[0]))]
+    plt.plot(range(len(q[0])), probs, label=f"State {state}")
+
+plt.xlabel('Time step')
+plt.ylabel('Probability of state')
+plt.title('Backward algorithm log space')
+plt.legend()
+plt.show()
 
 def fb_alg(states, Transition, q, Duration):
     T = len(q[0])
@@ -255,7 +292,7 @@ print(fb_probs)
 # plot
 for state in states:
     probs = [fb_probs[t][state] for t in range(len(fb_probs))]
-    plt.plot(range(1, len(fb_probs) + 1), np.log(probs), label=f'State {state}')
+    plt.plot(range(1, len(fb_probs) + 1), probs, label=f'State {state}')
 
 plt.xlabel('Time step')
 plt.ylabel('Probability')
