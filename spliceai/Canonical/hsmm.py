@@ -80,14 +80,14 @@ q = torch.zeros(9, q3.shape[1])
 q[1:6] = q3[0, :]
 q[6] = q3[1, :]
 q[7] = q3[2, :]
-q = q[:, :1000]
+q = q[:, :500]
 start = torch.zeros(9, 1)
 start[0] = 1.0
 end = torch.zeros(9, 1)
 end[-1] = 1.0
 q = torch.cat((start, q, end), dim=1)
 q /= q.sum(dim=0)
-print(q)
+# print(q)
 # plot
 time_steps = range(len(q[0]))
 plt.figure()
@@ -201,15 +201,6 @@ def forward(states, Transition, q, Duration):
 fwd = forward(states, Transition, q, Duration).detach().numpy()
 print(fwd)
 
-for state in states:
-    probs = [fwd[t][state] for t in range(len(q[0]))]
-    plt.plot(time_steps, probs, label =f"State {state}")
-
-plt.xlabel('Time step')
-plt.ylabel('Probability of state')
-plt.title('Forward algorithm')
-plt.legend()
-plt.show()
 
 def backward(states, Transition, q, Duration):
     T = len(q[0])
@@ -227,33 +218,33 @@ def backward(states, Transition, q, Duration):
     # initialization, log_beta[-1]
     log_beta[-1] = torch.zeros(N)
 
-    # # fill log_beta[:-1]
-    # for t in tqdm.trange(T - 2, -1, -1):
-    #     for d in range(D):
-    #         if t+d <= T-2:
-    #             cumulative_terms = cum_q_ep[:, t+1] if t+d == T-2 else cum_q_ep[:, t+1] - cum_q_ep[:, t+d+2]
-    #             log_beta[t] = torch.logaddexp(log_beta[t],
-    #                                             torch.logsumexp(
-    #                                                 torch.row_stack([log_beta[t+d+1]]*N)
-    #                                                 + Transition_ep
-    #                                                 + Duration_ep[:, d]
-    #                                                 + cumulative_terms, axis=1))
-    #         else:
-    #             break
-
     # fill log_beta[:-1]
     for t in tqdm.trange(T - 2, -1, -1):
-        valid_d = torch.arange(min(D, T-t-1)) # d
-        # print(valid_d)
-        log_beta_idx = t + valid_d + 1
-        log_betas = log_beta[log_beta_idx]
-        stacked_log_betas = log_betas.unsqueeze(1).repeat(1, N, 1)
-        # print(stacked_log_betas, stacked_log_betas.shape) # d, N, N
-        valid_durations = Duration_ep[:, valid_d].T.unsqueeze(1) # d, 1, N
-        valid_cum_terms = cum_q_ep[:, t+1] - cum_q_ep[:, t+valid_d[:-1]+2].T.flip(dims=[0])
-        valid_cum_terms = torch.cat([valid_cum_terms, cum_q_ep[:, t+1].unsqueeze(0)], dim=0).unsqueeze(1) # d, 1, N
-        # print(torch.logsumexp(stacked_log_betas + Transition_ep + valid_durations + valid_cum_terms, dim=2)[-1])
-        log_beta[t] = torch.logsumexp(stacked_log_betas + Transition_ep + valid_durations + valid_cum_terms, dim=2)[-1]
+        for d in range(D):
+            if t+d <= T-2:
+                cumulative_terms = cum_q_ep[:, t+1] if t+d == T-2 else cum_q_ep[:, t+1] - cum_q_ep[:, t+d+2]
+                log_beta[t] = torch.logaddexp(log_beta[t],
+                                                torch.logsumexp(
+                                                    torch.row_stack([log_beta[t+d+1]]*N)
+                                                    + Transition_ep
+                                                    + Duration_ep[:, d]
+                                                    + cumulative_terms, axis=1))
+            else:
+                break
+
+#     # fill log_beta[:-1]
+#     for t in tqdm.trange(T - 2, -1, -1):
+#         valid_d = torch.arange(min(D, T-t-1)) # d
+#         # print(valid_d)
+#         log_beta_idx = t + valid_d + 1
+#         log_betas = log_beta[log_beta_idx]
+#         stacked_log_betas = log_betas.unsqueeze(1).repeat(1, N, 1)
+#         # print(stacked_log_betas, stacked_log_betas.shape) # d, N, N
+#         valid_durations = Duration_ep[:, valid_d].T.unsqueeze(1) # d, 1, N
+#         valid_cum_terms = cum_q_ep[:, t+1] - cum_q_ep[:, t+valid_d[:-1]+2].T.flip(dims=[0])
+#         valid_cum_terms = torch.cat([valid_cum_terms, cum_q_ep[:, t+1].unsqueeze(0)], dim=0).unsqueeze(1) # d, 1, N
+#         # print(torch.logsumexp(stacked_log_betas + Transition_ep + valid_durations + valid_cum_terms, dim=2)[-1])
+#         log_beta[t] = torch.logsumexp(stacked_log_betas + Transition_ep + valid_durations + valid_cum_terms, dim=2)[-1]
     
     log_beta = torch.exp(log_beta)
     return log_beta
@@ -261,33 +252,18 @@ def backward(states, Transition, q, Duration):
 bwd = backward(states, Transition, q, Duration).detach().numpy()
 print(bwd)
 
-for state in states:
-    probs = [bwd[t][state] for t in range(len(q[0]))]
-    plt.plot(range(len(q[0])), probs, label=f"State {state}")
 
-plt.xlabel('Time step')
-plt.ylabel('Probability of state')
-plt.title('Backward algorithm log space')
-plt.legend()
-plt.show()
-
-def fb_alg(states, Transition, q, Duration):
+def fb_alg(fwd, bwd, q):
     T = len(q[0])
-    alpha = forward(states, Transition, q, Duration)
-    beta = backward(states, Transition, q, Duration)
-    fb_probs = alpha * beta
-
-    # normalize
-    fb_sum = torch.sum(alpha[T-1])
+    fb_probs = fwd * bwd
+    fb_sum = np.sum(fwd[T-1])
     if fb_sum:
         fb_probs = fb_probs / fb_sum
-    
-    #(fb_probs[2][2]).backward()
     return fb_probs
 
-fb_probs = fb_alg(states, Transition, q, Duration).detach().numpy()
+fb_probs = fb_alg(fwd, bwd, q)
 #print('q.grad:', (q.grad * 100).round().int())
-print(fb_probs)
+print('fb alg\n', fb_probs)
 
 # plot
 for state in states:
